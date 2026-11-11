@@ -73,6 +73,7 @@ def charger_config(chemin: Path) -> dict:
 # <script>self.__next_f.push([1,"…"])</script> (données de rendu Next.js).
 RE_BLOC_DONNEES = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 RE_ARTICLE = re.compile(r'"productItem":')
+RE_JSON_LD = re.compile(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', re.S)
 
 
 def extraire_articles(html: str) -> list[dict]:
@@ -146,6 +147,22 @@ class ClientVinted:
         r = self.session.get(self.base + "/catalog", params=params, timeout=30)
         r.raise_for_status()
         return extraire_articles(r.text)
+
+    def description(self, article: dict) -> str:
+        """Lit la description d'une annonce sur sa page (une requête de plus)."""
+        url = article.get("url") or f"/items/{article.get('id')}"
+        if url.startswith("/"):
+            url = self.base + url
+        r = self.session.get(url, timeout=30)
+        r.raise_for_status()
+        for m in RE_JSON_LD.finditer(r.text):
+            try:
+                donnees = json.loads(m.group(1))
+            except ValueError:
+                continue
+            if isinstance(donnees, dict) and donnees.get("@type") == "Product":
+                return donnees.get("description") or ""
+        raise ValueError("description introuvable sur la page de l'annonce")
 
 
 # --------------------------------------------------------------------------- #
@@ -306,6 +323,21 @@ def sauver_etat(chemin: Path, etat: dict[str, list[int]]) -> None:
 # Boucle principale
 # --------------------------------------------------------------------------- #
 
+def description_exclue(client: ClientVinted, article: dict, alerte: dict) -> bool:
+    """Vrai si la description contient un des mots de 'mots_exclus_description'."""
+    mots = alerte.get("mots_exclus_description") or []
+    if not mots:
+        return False
+    try:
+        description = normaliser(client.description(article))
+    except (requests.RequestException, ValueError) as e:
+        # Dans le doute on notifie : mieux vaut une alerte en trop qu'une ratée.
+        log.warning("[%s] description illisible (%s), annonce conservée.", alerte["nom"], e)
+        return False
+    time.sleep(random.uniform(0.5, 1.5))
+    return any(normaliser(m) in description for m in mots)
+
+
 def verifier_alerte(
     client: ClientVinted, notifieur: Notifieur, alerte: dict, etat: dict
 ) -> int:
@@ -329,9 +361,12 @@ def verifier_alerte(
 
     envoyes = 0
     for article in nouveaux:
-        if correspond(article, alerte):
-            notifieur.envoyer(nom, infos_article(article, client.base))
-            envoyes += 1
+        if not correspond(article, alerte):
+            continue
+        if description_exclue(client, article, alerte):
+            continue
+        notifieur.envoyer(nom, infos_article(article, client.base))
+        envoyes += 1
     return envoyes
 
 

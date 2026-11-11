@@ -58,6 +58,7 @@ mots_exclus = ["manette", "jeu", "boite vide"]
 | `prix_min`, `prix_max` | Fourchette de prix |
 | `mots_exclus` | Ignore l'annonce si son titre contient l'un de ces mots |
 | `mots_requis` | Le titre doit contenir tous ces mots |
+| `mots_exclus_description` | Ignore l'annonce si sa description contient l'un de ces mots |
 | `catalog_ids`, `brand_ids`, `taille_ids`, `etat_ids` | Catégorie, marque, taille, état |
 
 Les mots sont comparés sans tenir compte des majuscules ni des accents.

@@ -25,6 +25,8 @@ prix_max = 350
 mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support"]
 # L'annonce doit contenir tous ces mots (laisser vide pour ne rien imposer)
 mots_requis = []
+# L'annonce est ignorée si sa description contient l'un de ces mots
+mots_exclus_description = []
 
 # Exemple d'une deuxième alerte, avec tous les filtres disponibles :
 #

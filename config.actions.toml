@@ -14,3 +14,5 @@ prix_min = 150
 prix_max = 350
 mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support", "virement", "paypal", "recherche", "cerco", "portal", "portable", "volant", "pédale", "logitech"]
 mots_requis = []
+# L'annonce est ignorée si sa description contient l'un de ces mots
+mots_exclus_description = []
