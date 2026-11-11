@@ -5,7 +5,7 @@ nouvel article correspondant à tes filtres est mis en ligne.
 
 ## Installation
 
-Il faut Python 3.11 ou plus récent.
+Il faut Python 3.8 ou plus récent.
 
 ```bash
 pip install -r requirements.txt

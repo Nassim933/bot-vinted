@@ -16,11 +16,15 @@ import os
 import random
 import sys
 import time
-import tomllib
 import unicodedata
 from pathlib import Path
 
 import requests
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.8 à 3.10
+    import tomli as tomllib
 
 log = logging.getLogger("vinted-bot")
 
