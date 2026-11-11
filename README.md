@@ -100,8 +100,9 @@ activité sur le dépôt.
 
 ## À savoir
 
-- Le bot utilise l'API interne du site Vinted, qui n'est pas officielle : elle
-  peut changer ou bloquer les requêtes (erreur 403/429). Dans ce cas, augmente
+- Le bot lit la page de recherche du site Vinted (il n'existe pas d'API
+  publique) : si Vinted modifie son site ou bloque les requêtes (erreur
+  403/429), le bot peut cesser de fonctionner. En cas de blocage, augmente
   `intervalle_secondes`.
 - Fais-le tourner depuis une connexion personnelle (PC, Raspberry Pi) : les
   adresses IP de serveurs cloud sont souvent bloquées par Vinted.

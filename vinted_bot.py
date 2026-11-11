@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 import unicodedata
@@ -68,8 +69,52 @@ def charger_config(chemin: Path) -> dict:
 # Client Vinted
 # --------------------------------------------------------------------------- #
 
+# Les annonces sont embarquées dans la page de recherche, dans des blocs
+# <script>self.__next_f.push([1,"…"])</script> (données de rendu Next.js).
+RE_BLOC_DONNEES = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
+RE_ARTICLE = re.compile(r'"productItem":')
+
+
+def extraire_articles(html: str) -> list[dict]:
+    """Extrait les annonces de la page de recherche Vinted."""
+    blocs = RE_BLOC_DONNEES.findall(html)
+    if not blocs:
+        raise ValueError("page Vinted inattendue (format modifié ou accès bloqué)")
+    donnees = "".join(json.loads(b) for b in blocs)
+
+    decodeur = json.JSONDecoder()
+    articles, ids = [], set()
+    for m in RE_ARTICLE.finditer(donnees):
+        try:
+            brut, _ = decodeur.raw_decode(donnees, m.end())
+        except ValueError:
+            continue
+        if not isinstance(brut, dict) or brut.get("id") in ids or brut.get("id") is None:
+            continue
+        ids.add(brut["id"])
+        prix = brut.get("price") or {}
+        encart = brut.get("itemBox") or {}
+        photos = brut.get("photos") or []
+        photo = (photos[0].get("url") if photos else None) or brut.get("thumbnailUrl")
+        articles.append(
+            {
+                "id": brut["id"],
+                "title": brut.get("title"),
+                "url": brut.get("url"),
+                "price": {
+                    "amount": prix.get("amount"),
+                    "currency_code": prix.get("currencyCode"),
+                },
+                "brand_title": encart.get("firstLine"),
+                "status": encart.get("secondLine"),
+                "photo": {"url": photo},
+            }
+        )
+    return articles
+
+
 class ClientVinted:
-    """Petit client pour l'API de recherche utilisée par le site Vinted."""
+    """Petit client qui lit la page de recherche du site Vinted."""
 
     def __init__(self, domaine: str = "www.vinted.fr"):
         self.base = f"https://{domaine}"
@@ -77,52 +122,30 @@ class ClientVinted:
         self.session.headers.update(
             {
                 "User-Agent": USER_AGENT,
-                "Accept": "application/json, text/plain, */*",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
             }
         )
-        self._cookies_ok = False
 
-    def _obtenir_cookies(self) -> None:
-        # L'API exige les cookies de session posés par la page d'accueil.
-        self.session.cookies.clear()
-        r = self.session.get(self.base + "/", timeout=20)
-        r.raise_for_status()
-        self._cookies_ok = True
-
-    def rechercher(self, alerte: dict, par_page: int = 40) -> list[dict]:
-        params = {
-            "page": 1,
-            "per_page": par_page,
-            "order": "newest_first",
-            "search_text": alerte.get("recherche", ""),
-        }
+    def rechercher(self, alerte: dict) -> list[dict]:
+        params = [("order", "newest_first")]
+        if alerte.get("recherche"):
+            params.append(("search_text", alerte["recherche"]))
         if alerte.get("prix_min") is not None:
-            params["price_from"] = alerte["prix_min"]
+            params.append(("price_from", alerte["prix_min"]))
         if alerte.get("prix_max") is not None:
-            params["price_to"] = alerte["prix_max"]
-        for cle_config, cle_api in (
-            ("catalog_ids", "catalog_ids"),
-            ("brand_ids", "brand_ids"),
-            ("etat_ids", "status_ids"),
-            ("taille_ids", "size_ids"),
+            params.append(("price_to", alerte["prix_max"]))
+        for cle_config, cle_url in (
+            ("catalog_ids", "catalog[]"),
+            ("brand_ids", "brand_ids[]"),
+            ("etat_ids", "status_ids[]"),
+            ("taille_ids", "size_ids[]"),
         ):
-            if alerte.get(cle_config):
-                params[cle_api] = ",".join(str(v) for v in alerte[cle_config])
+            params.extend((cle_url, v) for v in alerte.get(cle_config, []))
 
-        for tentative in (1, 2):
-            if not self._cookies_ok:
-                self._obtenir_cookies()
-            r = self.session.get(
-                self.base + "/api/v2/catalog/items", params=params, timeout=20
-            )
-            if r.status_code in (401, 403) and tentative == 1:
-                log.info("Session expirée (HTTP %s), renouvellement…", r.status_code)
-                self._cookies_ok = False
-                continue
-            r.raise_for_status()
-            return r.json().get("items", [])
-        return []
+        r = self.session.get(self.base + "/catalog", params=params, timeout=30)
+        r.raise_for_status()
+        return extraire_articles(r.text)
 
 
 # --------------------------------------------------------------------------- #
@@ -183,9 +206,7 @@ def infos_article(article: dict, base: str) -> dict:
         "titre": article.get("title") or "(sans titre)",
         "prix": f"{prix:.2f} {devise_article(article)}" if prix is not None else "?",
         "marque": article.get("brand_title") or "",
-        "taille": article.get("size_title") or "",
         "etat": article.get("status") or "",
-        "vendeur": (article.get("user") or {}).get("login") or "",
         "url": url,
         "photo": photo.get("url") if isinstance(photo, dict) else None,
     }
@@ -209,9 +230,7 @@ class Notifieur:
             )
 
     def envoyer(self, nom_alerte: str, info: dict) -> None:
-        details = " · ".join(
-            v for v in (info["marque"], info["taille"], info["etat"]) if v
-        )
+        details = " · ".join(v for v in (info["marque"], info["etat"]) if v)
         log.info("🔔 [%s] %s — %s — %s", nom_alerte, info["titre"], info["prix"], info["url"])
         if self.tg_token and self.tg_chat:
             self._telegram(nom_alerte, info, details)
@@ -222,8 +241,6 @@ class Notifieur:
         lignes = [f"🔔 {nom_alerte}", info["titre"], f"💶 {info['prix']}"]
         if details:
             lignes.append(details)
-        if info["vendeur"]:
-            lignes.append(f"👤 {info['vendeur']}")
         lignes.append(info["url"])
         texte = "\n".join(lignes)
         api = f"https://api.telegram.org/bot{self.tg_token}"
@@ -253,8 +270,6 @@ class Notifieur:
             "description": f"**{info['prix']}**" + (f"\n{details}" if details else ""),
             "footer": {"text": f"Alerte : {nom_alerte}"},
         }
-        if info["vendeur"]:
-            embed["author"] = {"name": info["vendeur"]}
         if info["photo"]:
             embed["image"] = {"url": info["photo"]}
         try:
@@ -369,9 +384,7 @@ def main() -> None:
                 "titre": "Notification de test",
                 "prix": "0.00 EUR",
                 "marque": "",
-                "taille": "",
                 "etat": "",
-                "vendeur": "",
                 "url": "https://www.vinted.fr",
                 "photo": None,
             },
