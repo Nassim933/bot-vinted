@@ -84,8 +84,9 @@ python vinted_bot.py --once
 
 ## Faire tourner le bot sur GitHub Actions
 
-Le dépôt contient un workflow (`.github/workflows/alertes.yml`) qui lance le bot
-toutes les 5 minutes sans que ta machine soit allumée.
+Le dépôt contient un workflow (`.github/workflows/alertes.yml`) qui fait tourner
+le bot en continu sans que ta machine soit allumée : chaque lancement dure
+5 h 30 puis déclenche lui-même le suivant.
 
 1. Sur GitHub : *Settings > Secrets and variables > Actions > New repository secret*,
    crée deux secrets : `TELEGRAM_TOKEN` et `TELEGRAM_CHAT_ID`.
@@ -94,9 +95,18 @@ toutes les 5 minutes sans que ta machine soit allumée.
 3. Onglet *Actions* : active les workflows si GitHub le demande, puis lance
    « Alertes Vinted » avec *Run workflow* pour un premier essai.
 
-Limites : GitHub lance les tâches planifiées avec un retard variable (souvent
-quelques minutes, parfois plus), et désactive le workflow après 60 jours sans
-activité sur le dépôt.
+Un seul bot tourne à la fois. Toutes les 30 minutes, GitHub vérifie qu'il est
+bien en marche et le redémarre s'il s'est arrêté ; ces vérifications apparaissent
+dans l'onglet *Actions* comme des lancements de quelques secondes.
+
+Pour modifier tes alertes : change `config.actions.toml`, puis annule le
+lancement en cours (*Cancel workflow*) et relance-le avec *Run workflow*.
+
+Pour arrêter le bot : onglet *Actions* > « Alertes Vinted » > menu `...` >
+*Disable workflow*, puis annule le lancement en cours. Annuler seul ne suffit
+pas : il redémarrerait dans la demi-heure.
+
+GitHub désactive aussi le workflow après 60 jours sans activité sur le dépôt.
 
 ## À savoir
 

@@ -1,46 +1,88 @@
 name: Alertes Vinted
 
-on:
-  schedule:
-    - cron: "*/5 * * * *"   # toutes les 5 minutes (GitHub peut retarder les lancements)
-  workflow_dispatch:         # lancement manuel depuis l'onglet Actions
+# Le bot tourne en continu : chaque lancement dure 5 h 30 (la limite de GitHub
+# est de 6 h par tâche), puis déclenche lui-même le lancement suivant.
 
-concurrency:
-  group: alertes-vinted
-  cancel-in-progress: false
+on:
+  workflow_dispatch:          # lancement manuel depuis l'onglet Actions
+    inputs:
+      relais:
+        description: "Réservé au bot (relance automatique)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "*/30 * * * *"    # filet de sécurité : redémarre le bot s'il s'est arrêté
 
 permissions:
   contents: read
+  actions: write              # pour déclencher le lancement suivant
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
-  verifier:
+  bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
+      # Un seul bot à la fois : si un autre lancement est déjà en cours, on s'arrête
+      # là (sauf pour la relance automatique, qui prend le relais du précédent).
+      - name: Vérifier qu'aucun bot ne tourne déjà
+        id: verif
+        run: |
+          if [ "${{ github.event.inputs.relais }}" = "true" ]; then
+            echo "lancer=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          autres=0
+          for statut in in_progress queued; do
+            n=$(gh run list --workflow alertes.yml --status "$statut" --json databaseId \
+                  --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            autres=$((autres + n))
+          done
+          if [ "$autres" -gt 0 ]; then
+            echo "Un bot tourne déjà : rien à faire."
+            echo "lancer=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "lancer=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.verif.outputs.lancer == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.verif.outputs.lancer == 'true'
         with:
           python-version: "3.12"
           cache: pip
 
       - run: pip install -r requirements.txt
+        if: steps.verif.outputs.lancer == 'true'
 
       # Mémoire des articles déjà vus, conservée d'un lancement à l'autre.
       - uses: actions/cache/restore@v4
+        if: steps.verif.outputs.lancer == 'true'
         with:
           path: articles_vus.json
           key: articles-vus-${{ github.run_id }}
           restore-keys: articles-vus-
 
-      - name: Vérifier Vinted
+      - name: Surveiller Vinted pendant 5 h 30
+        if: steps.verif.outputs.lancer == 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python vinted_bot.py -c config.actions.toml --duree 270
+        run: python vinted_bot.py -c config.actions.toml --duree 19800
 
       - uses: actions/cache/save@v4
-        if: always() && hashFiles('articles_vus.json') != ''
+        if: always() && steps.verif.outputs.lancer == 'true' && hashFiles('articles_vus.json') != ''
         with:
           path: articles_vus.json
           key: articles-vus-${{ github.run_id }}
+
+      # En cas d'erreur, pas de relance immédiate : le filet de sécurité
+      # redémarre le bot dans la demi-heure, ce qui évite une boucle d'échecs.
+      - name: Lancer le bot suivant
+        if: success() && steps.verif.outputs.lancer == 'true'
+        run: gh workflow run alertes.yml --ref "$GITHUB_REF_NAME" -f relais=true
