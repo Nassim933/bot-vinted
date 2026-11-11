@@ -1,0 +1,40 @@
+# Copie ce fichier en "config.toml" puis adapte-le.
+# config.toml n'est pas versionné : tes tokens restent sur ta machine.
+
+[general]
+domaine = "www.vinted.fr"      # www.vinted.be, www.vinted.es, ...
+intervalle_secondes = 60       # délai entre deux vérifications (minimum 15)
+
+# --- Notifications : remplis au moins un des deux canaux ---------------------
+
+[notifications.telegram]
+token = ""      # donné par @BotFather
+chat_id = ""    # ton identifiant, donné par @userinfobot
+
+[notifications.discord]
+webhook_url = ""   # Paramètres du salon > Intégrations > Webhooks
+
+# --- Alertes : un bloc [[alertes]] par recherche -----------------------------
+
+[[alertes]]
+nom = "PS5"
+recherche = "ps5"
+prix_min = 150
+prix_max = 350
+# L'annonce est ignorée si son titre contient l'un de ces mots
+mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support"]
+# L'annonce doit contenir tous ces mots (laisser vide pour ne rien imposer)
+mots_requis = []
+
+# Exemple d'une deuxième alerte, avec tous les filtres disponibles :
+#
+# [[alertes]]
+# nom = "Nike Dunk 42"
+# recherche = "nike dunk"
+# prix_max = 60
+# mots_requis = ["dunk"]
+# mots_exclus = ["enfant"]
+# catalog_ids = [1242]    # catégorie   (valeur de catalog[]=    dans l'URL Vinted)
+# brand_ids = [53]        # marque      (valeur de brand_ids[]=  dans l'URL Vinted)
+# taille_ids = [784]      # taille      (valeur de size_ids[]=   dans l'URL Vinted)
+# etat_ids = [6, 1]       # état        (valeur de status_ids[]= dans l'URL Vinted)
