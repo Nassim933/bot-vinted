@@ -12,5 +12,5 @@ nom = "PS5"
 recherche = "ps5"
 prix_min = 150
 prix_max = 350
-mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support", "virement", "paypal", "recherche", "cerco", "portal", "portable"]
+mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support", "virement", "paypal", "recherche", "cerco", "portal", "portable", "volant", "pédale", "logitech"]
 mots_requis = []
