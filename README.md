@@ -82,6 +82,22 @@ Pour une seule vérification (par exemple depuis cron) :
 python vinted_bot.py --once
 ```
 
+## Faire tourner le bot sur GitHub Actions
+
+Le dépôt contient un workflow (`.github/workflows/alertes.yml`) qui lance le bot
+toutes les 5 minutes sans que ta machine soit allumée.
+
+1. Sur GitHub : *Settings > Secrets and variables > Actions > New repository secret*,
+   crée deux secrets : `TELEGRAM_TOKEN` et `TELEGRAM_CHAT_ID`.
+2. Règle tes alertes dans `config.actions.toml` (ce fichier est public : n'y mets
+   pas de token).
+3. Onglet *Actions* : active les workflows si GitHub le demande, puis lance
+   « Alertes Vinted » avec *Run workflow* pour un premier essai.
+
+Limites : GitHub lance les tâches planifiées avec un retard variable (souvent
+quelques minutes, parfois plus), et désactive le workflow après 60 jours sans
+activité sur le dépôt.
+
 ## À savoir
 
 - Le bot utilise l'API interne du site Vinted, qui n'est pas officielle : elle

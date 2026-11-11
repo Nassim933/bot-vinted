@@ -1,0 +1,16 @@
+# Configuration utilisée par GitHub Actions (.github/workflows/alertes.yml).
+# Ce fichier est public : ne mets JAMAIS de token ici.
+# Le token et le chat_id Telegram viennent des secrets du dépôt
+# (TELEGRAM_TOKEN et TELEGRAM_CHAT_ID).
+
+[general]
+domaine = "www.vinted.fr"
+intervalle_secondes = 60
+
+[[alertes]]
+nom = "PS5"
+recherche = "ps5"
+prix_min = 150
+prix_max = 350
+mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support"]
+mots_requis = []

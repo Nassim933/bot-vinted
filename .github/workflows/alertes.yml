@@ -1,0 +1,46 @@
+name: Alertes Vinted
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # toutes les 5 minutes (GitHub peut retarder les lancements)
+  workflow_dispatch:         # lancement manuel depuis l'onglet Actions
+
+concurrency:
+  group: alertes-vinted
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Mémoire des articles déjà vus, conservée d'un lancement à l'autre.
+      - uses: actions/cache/restore@v4
+        with:
+          path: articles_vus.json
+          key: articles-vus-${{ github.run_id }}
+          restore-keys: articles-vus-
+
+      - name: Vérifier Vinted
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python vinted_bot.py -c config.actions.toml --duree 270
+
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('articles_vus.json') != ''
+        with:
+          path: articles_vus.json
+          key: articles-vus-${{ github.run_id }}

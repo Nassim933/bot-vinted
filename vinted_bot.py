@@ -4,6 +4,7 @@
 Usage :
     python vinted_bot.py                 # tourne en continu
     python vinted_bot.py --once          # une seule vérification (pratique avec cron)
+    python vinted_bot.py --duree 270     # tourne 270 secondes puis quitte
     python vinted_bot.py --test-notif    # envoie une notification de test
 """
 
@@ -319,25 +320,36 @@ def verifier_alerte(
     return envoyes
 
 
-def tour(client, notifieur, alertes, etat, chemin_etat) -> None:
+def tour(client, notifieur, alertes, etat, chemin_etat) -> int:
+    """Vérifie toutes les alertes ; renvoie le nombre d'alertes en échec."""
+    echecs = 0
     for alerte in alertes:
         try:
             verifier_alerte(client, notifieur, alerte, etat)
         except requests.HTTPError as e:
+            echecs += 1
             code = e.response.status_code if e.response is not None else "?"
             log.error("[%s] Vinted a répondu HTTP %s.", alerte["nom"], code)
             if code in (403, 429):
                 log.error("Vinted limite ou bloque les requêtes : augmente intervalle_secondes.")
         except (requests.RequestException, ValueError) as e:
+            echecs += 1
             log.error("[%s] erreur : %s: %s", alerte["nom"], type(e).__name__, e)
         time.sleep(random.uniform(1, 3))  # petite pause entre deux alertes
     sauver_etat(chemin_etat, etat)
+    return echecs
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bot d'alertes Vinted")
     parser.add_argument("-c", "--config", default="config.toml", help="fichier de configuration")
     parser.add_argument("--once", action="store_true", help="une seule vérification puis quitte")
+    parser.add_argument(
+        "--duree",
+        type=int,
+        metavar="SECONDES",
+        help="tourne pendant cette durée puis quitte (pour GitHub Actions)",
+    )
     parser.add_argument("--test-notif", action="store_true", help="envoie une notification de test")
     args = parser.parse_args()
 
@@ -373,14 +385,23 @@ def main() -> None:
     alertes = config["alertes"]
 
     log.info("%d alerte(s) : %s", len(alertes), ", ".join(a["nom"] for a in alertes))
+    fin = time.monotonic() + args.duree if args.duree else None
+    echecs = 0
     try:
         while True:
-            tour(client, notifieur, alertes, etat, chemin_etat)
+            echecs = tour(client, notifieur, alertes, etat, chemin_etat)
             if args.once:
                 break
-            time.sleep(intervalle + random.uniform(0, intervalle * 0.2))
+            pause = intervalle + random.uniform(0, intervalle * 0.2)
+            if fin is not None and time.monotonic() + pause >= fin:
+                break
+            time.sleep(pause)
     except KeyboardInterrupt:
         log.info("Arrêt.")
+        return
+    if echecs == len(alertes):
+        # Signale l'échec à cron / GitHub Actions quand plus rien ne passe.
+        sys.exit("Toutes les alertes ont échoué lors de la dernière vérification.")
 
 
 if __name__ == "__main__":
