@@ -30,6 +30,9 @@ mots_exclus_description = []
 # Nombre minimum d'avis reçus par le vendeur (1 = ignorer les vendeurs sans
 # aucun avis, 0 = ne pas filtrer)
 avis_min = 1
+# Pays autorisés pour le vendeur, en codes à deux lettres : ["FR"] pour la France
+# seulement, ["FR", "BE"] pour France et Belgique, [] pour tous les pays
+pays = ["FR"]
 
 # Exemple d'une deuxième alerte, avec tous les filtres disponibles :
 #

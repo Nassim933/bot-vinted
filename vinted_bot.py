@@ -74,6 +74,8 @@ def charger_config(chemin: Path) -> dict:
 RE_BLOC_DONNEES = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 RE_ARTICLE = re.compile(r'"productItem":')
 RE_AVIS = re.compile(r'"feedback_count":(\d+)')
+RE_VENDEUR_ID = re.compile(r'"seller_id":"?(\d+)')
+RE_PAYS = re.compile(r'"country_iso_code":"([A-Za-z]{2})"')
 RE_JSON_LD = re.compile(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', re.S)
 
 
@@ -128,6 +130,7 @@ class ClientVinted:
                 "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
             }
         )
+        self._pays: dict[str, str] = {}  # pays déjà lus, par identifiant de vendeur
 
     def rechercher(self, alerte: dict) -> list[dict]:
         params = [("order", "newest_first")]
@@ -150,8 +153,9 @@ class ClientVinted:
     def details(self, article: dict) -> dict:
         """Lit la page d'une annonce (une requête de plus).
 
-        Renvoie {"description": str | None, "avis": int | None} ; "avis" est le
-        nombre d'évaluations reçues par le vendeur.
+        Renvoie {"description": str | None, "avis": int | None,
+        "vendeur_id": str | None} ; "avis" est le nombre d'évaluations reçues
+        par le vendeur.
         """
         url = article.get("url") or f"/items/{article.get('id')}"
         if url.startswith("/"):
@@ -168,12 +172,25 @@ class ClientVinted:
                 description = donnees.get("description") or ""
                 break
 
-        avis = None
-        blocs = RE_BLOC_DONNEES.findall(html)
-        m = RE_AVIS.search("".join(json.loads(b) for b in blocs))
-        if m:
-            avis = int(m.group(1))
-        return {"description": description, "avis": avis}
+        donnees = "".join(json.loads(b) for b in RE_BLOC_DONNEES.findall(html))
+        m = RE_AVIS.search(donnees)
+        avis = int(m.group(1)) if m else None
+        m = RE_VENDEUR_ID.search(donnees)
+        vendeur_id = m.group(1) if m else None
+        return {"description": description, "avis": avis, "vendeur_id": vendeur_id}
+
+    def pays_vendeur(self, vendeur_id: str) -> str | None:
+        """Code pays (FR, BE, ES…) du vendeur, lu sur son profil (une requête de plus)."""
+        if vendeur_id not in self._pays:
+            html = self._get(f"{self.base}/member/{vendeur_id}").text
+            donnees = "".join(json.loads(b) for b in RE_BLOC_DONNEES.findall(html))
+            m = RE_PAYS.search(donnees)
+            if not m:
+                return None
+            if len(self._pays) > 5000:
+                self._pays.clear()
+            self._pays[vendeur_id] = m.group(1).upper()
+        return self._pays[vendeur_id]
 
     def _get(self, url: str, params=None) -> requests.Response:
         # Vinted répond parfois 403 de façon passagère : on retente une fois
@@ -248,6 +265,7 @@ def infos_article(article: dict, base: str) -> dict:
         "marque": article.get("brand_title") or "",
         "etat": article.get("status") or "",
         "avis": article.get("avis"),
+        "pays": article.get("pays") or "",
         "url": url,
         "photo": photo.get("url") if isinstance(photo, dict) else None,
     }
@@ -272,7 +290,7 @@ class Notifieur:
 
     def envoyer(self, nom_alerte: str, info: dict) -> None:
         avis = f"⭐ {info['avis']} avis vendeur" if info.get("avis") is not None else ""
-        details = " · ".join(v for v in (info["marque"], info["etat"], avis) if v)
+        details = " · ".join(v for v in (info["marque"], info["etat"], avis, info.get("pays")) if v)
         log.info("🔔 [%s] %s — %s — %s", nom_alerte, info["titre"], info["prix"], info["url"])
         if self.tg_token and self.tg_chat:
             self._telegram(nom_alerte, info, details)
@@ -352,11 +370,13 @@ def exclue_par_details(client: ClientVinted, article: dict, alerte: dict) -> boo
     """Filtres qui demandent d'ouvrir la page de l'annonce.
 
     - 'mots_exclus_description' : mots interdits dans la description ;
-    - 'avis_min' : nombre minimum d'avis reçus par le vendeur.
+    - 'avis_min' : nombre minimum d'avis reçus par le vendeur ;
+    - 'pays' : pays autorisés pour le vendeur (codes à deux lettres).
     """
     mots = alerte.get("mots_exclus_description") or []
     avis_min = alerte.get("avis_min") or 0
-    if not mots and avis_min <= 0:
+    pays = [p.upper() for p in alerte.get("pays") or []]
+    if not mots and avis_min <= 0 and not pays:
         return False
     # Dans le doute on notifie : mieux vaut une alerte en trop qu'une ratée.
     try:
@@ -377,7 +397,21 @@ def exclue_par_details(client: ClientVinted, article: dict, alerte: dict) -> boo
             log.warning("[%s] description introuvable, annonce conservée.", alerte["nom"])
         else:
             description = normaliser(details["description"])
-            return any(normaliser(m) in description for m in mots)
+            if any(normaliser(m) in description for m in mots):
+                return True
+    if pays:
+        pays_vendeur = None
+        try:
+            if details["vendeur_id"]:
+                pays_vendeur = client.pays_vendeur(details["vendeur_id"])
+                time.sleep(random.uniform(0.5, 1.5))
+        except (requests.RequestException, ValueError) as e:
+            log.warning("[%s] profil du vendeur illisible (%s).", alerte["nom"], e)
+        if pays_vendeur is None:
+            log.warning("[%s] pays du vendeur introuvable, annonce conservée.", alerte["nom"])
+        else:
+            article["pays"] = pays_vendeur
+            return pays_vendeur not in pays
     return False
 
 
