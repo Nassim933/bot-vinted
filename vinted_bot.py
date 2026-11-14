@@ -246,6 +246,9 @@ def correspond(article: dict, alerte: dict) -> bool:
         return False
     if not all(normaliser(m) in titre for m in alerte.get("mots_requis", [])):
         return False
+    au_choix = alerte.get("mots_requis_au_choix", [])
+    if au_choix and not any(normaliser(m) in titre for m in au_choix):
+        return False
     return True
 
 

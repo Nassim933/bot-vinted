@@ -58,6 +58,7 @@ mots_exclus = ["manette", "jeu", "boite vide"]
 | `prix_min`, `prix_max` | Fourchette de prix |
 | `mots_exclus` | Ignore l'annonce si son titre contient l'un de ces mots |
 | `mots_requis` | Le titre doit contenir tous ces mots |
+| `mots_requis_au_choix` | Le titre doit contenir au moins un de ces mots |
 | `mots_exclus_description` | Ignore l'annonce si sa description contient l'un de ces mots |
 | `avis_min` | Nombre minimum d'avis reçus par le vendeur (`1` ignore les vendeurs sans aucun avis) |
 | `pays` | Pays autorisés pour le vendeur, en codes à deux lettres (`["FR"]` = France seulement) |
