@@ -12,8 +12,8 @@ nom = "PS5"
 recherche = "ps5"
 prix_min = 150
 prix_max = 350
-mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support", "virement", "paypal", "recherche", "cerco", "portal", "portable", "volant", "pédale", "logitech", "cherche"]
-mots_requis = []
+mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "support", "virement", "paypal", "recherche", "cerco", "portal", "portable", "volant", "pédale", "logitech", "cherche", "gta"]
+mots_requis = ["ps5"]
 # L'annonce est ignorée si sa description contient l'un de ces mots
 mots_exclus_description = ["paypal", "virement", "recherche", "cherche", "portal", "portable"]
 # Nombre minimum d'avis reçus par le vendeur (1 = ignorer les vendeurs sans
