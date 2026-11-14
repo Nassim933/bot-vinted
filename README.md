@@ -59,6 +59,7 @@ mots_exclus = ["manette", "jeu", "boite vide"]
 | `mots_exclus` | Ignore l'annonce si son titre contient l'un de ces mots |
 | `mots_requis` | Le titre doit contenir tous ces mots |
 | `mots_exclus_description` | Ignore l'annonce si sa description contient l'un de ces mots |
+| `avis_min` | Nombre minimum d'avis reçus par le vendeur (`1` ignore les vendeurs sans aucun avis) |
 | `catalog_ids`, `brand_ids`, `taille_ids`, `etat_ids` | Catégorie, marque, taille, état |
 
 Les mots sont comparés sans tenir compte des majuscules ni des accents.

@@ -73,6 +73,7 @@ def charger_config(chemin: Path) -> dict:
 # <script>self.__next_f.push([1,"…"])</script> (données de rendu Next.js).
 RE_BLOC_DONNEES = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 RE_ARTICLE = re.compile(r'"productItem":')
+RE_AVIS = re.compile(r'"feedback_count":(\d+)')
 RE_JSON_LD = re.compile(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', re.S)
 
 
@@ -144,25 +145,47 @@ class ClientVinted:
         ):
             params.extend((cle_url, v) for v in alerte.get(cle_config, []))
 
-        r = self.session.get(self.base + "/catalog", params=params, timeout=30)
-        r.raise_for_status()
-        return extraire_articles(r.text)
+        return extraire_articles(self._get(self.base + "/catalog", params).text)
 
-    def description(self, article: dict) -> str:
-        """Lit la description d'une annonce sur sa page (une requête de plus)."""
+    def details(self, article: dict) -> dict:
+        """Lit la page d'une annonce (une requête de plus).
+
+        Renvoie {"description": str | None, "avis": int | None} ; "avis" est le
+        nombre d'évaluations reçues par le vendeur.
+        """
         url = article.get("url") or f"/items/{article.get('id')}"
         if url.startswith("/"):
             url = self.base + url
-        r = self.session.get(url, timeout=30)
-        r.raise_for_status()
-        for m in RE_JSON_LD.finditer(r.text):
+        html = self._get(url).text
+
+        description = None
+        for m in RE_JSON_LD.finditer(html):
             try:
                 donnees = json.loads(m.group(1))
             except ValueError:
                 continue
             if isinstance(donnees, dict) and donnees.get("@type") == "Product":
-                return donnees.get("description") or ""
-        raise ValueError("description introuvable sur la page de l'annonce")
+                description = donnees.get("description") or ""
+                break
+
+        avis = None
+        blocs = RE_BLOC_DONNEES.findall(html)
+        m = RE_AVIS.search("".join(json.loads(b) for b in blocs))
+        if m:
+            avis = int(m.group(1))
+        return {"description": description, "avis": avis}
+
+    def _get(self, url: str, params=None) -> requests.Response:
+        # Vinted répond parfois 403 de façon passagère : on retente une fois
+        # avec une session neuve avant d'abandonner.
+        for tentative in (1, 2):
+            r = self.session.get(url, params=params, timeout=30)
+            if r.status_code == 403 and tentative == 1:
+                self.session.cookies.clear()
+                time.sleep(random.uniform(2, 4))
+                continue
+            r.raise_for_status()
+            return r
 
 
 # --------------------------------------------------------------------------- #
@@ -224,6 +247,7 @@ def infos_article(article: dict, base: str) -> dict:
         "prix": f"{prix:.2f} {devise_article(article)}" if prix is not None else "?",
         "marque": article.get("brand_title") or "",
         "etat": article.get("status") or "",
+        "avis": article.get("avis"),
         "url": url,
         "photo": photo.get("url") if isinstance(photo, dict) else None,
     }
@@ -247,7 +271,8 @@ class Notifieur:
             )
 
     def envoyer(self, nom_alerte: str, info: dict) -> None:
-        details = " · ".join(v for v in (info["marque"], info["etat"]) if v)
+        avis = f"⭐ {info['avis']} avis vendeur" if info.get("avis") is not None else ""
+        details = " · ".join(v for v in (info["marque"], info["etat"], avis) if v)
         log.info("🔔 [%s] %s — %s — %s", nom_alerte, info["titre"], info["prix"], info["url"])
         if self.tg_token and self.tg_chat:
             self._telegram(nom_alerte, info, details)
@@ -323,19 +348,37 @@ def sauver_etat(chemin: Path, etat: dict[str, list[int]]) -> None:
 # Boucle principale
 # --------------------------------------------------------------------------- #
 
-def description_exclue(client: ClientVinted, article: dict, alerte: dict) -> bool:
-    """Vrai si la description contient un des mots de 'mots_exclus_description'."""
+def exclue_par_details(client: ClientVinted, article: dict, alerte: dict) -> bool:
+    """Filtres qui demandent d'ouvrir la page de l'annonce.
+
+    - 'mots_exclus_description' : mots interdits dans la description ;
+    - 'avis_min' : nombre minimum d'avis reçus par le vendeur.
+    """
     mots = alerte.get("mots_exclus_description") or []
-    if not mots:
+    avis_min = alerte.get("avis_min") or 0
+    if not mots and avis_min <= 0:
         return False
+    # Dans le doute on notifie : mieux vaut une alerte en trop qu'une ratée.
     try:
-        description = normaliser(client.description(article))
+        details = client.details(article)
     except (requests.RequestException, ValueError) as e:
-        # Dans le doute on notifie : mieux vaut une alerte en trop qu'une ratée.
-        log.warning("[%s] description illisible (%s), annonce conservée.", alerte["nom"], e)
+        log.warning("[%s] page de l'annonce illisible (%s), annonce conservée.", alerte["nom"], e)
         return False
     time.sleep(random.uniform(0.5, 1.5))
-    return any(normaliser(m) in description for m in mots)
+    article["avis"] = details["avis"]
+
+    if avis_min > 0:
+        if details["avis"] is None:
+            log.warning("[%s] nombre d'avis introuvable, annonce conservée.", alerte["nom"])
+        elif details["avis"] < avis_min:
+            return True
+    if mots:
+        if details["description"] is None:
+            log.warning("[%s] description introuvable, annonce conservée.", alerte["nom"])
+        else:
+            description = normaliser(details["description"])
+            return any(normaliser(m) in description for m in mots)
+    return False
 
 
 def verifier_alerte(
@@ -363,7 +406,7 @@ def verifier_alerte(
     for article in nouveaux:
         if not correspond(article, alerte):
             continue
-        if description_exclue(client, article, alerte):
+        if exclue_par_details(client, article, alerte):
             continue
         notifieur.envoyer(nom, infos_article(article, client.base))
         envoyes += 1

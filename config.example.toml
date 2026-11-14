@@ -27,6 +27,9 @@ mots_exclus = ["manette", "jeu", "jeux", "casque", "coque", "boite vide", "suppo
 mots_requis = []
 # L'annonce est ignorée si sa description contient l'un de ces mots
 mots_exclus_description = []
+# Nombre minimum d'avis reçus par le vendeur (1 = ignorer les vendeurs sans
+# aucun avis, 0 = ne pas filtrer)
+avis_min = 1
 
 # Exemple d'une deuxième alerte, avec tous les filtres disponibles :
 #
